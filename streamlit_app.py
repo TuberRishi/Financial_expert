@@ -7,11 +7,13 @@ from io import BytesIO
 import pandas as pd
 import matplotlib.pyplot as plt
 
+
 # Load environment variables
 load_dotenv()
 
-# Initialize the financial agent
-financial_agent = FinancialAgent()
+# Initialize the financial agent in session state if it doesn't exist
+if "financial_agent" not in st.session_state:
+    st.session_state.financial_agent = FinancialAgent()
 
 # Set page config
 st.set_page_config(
@@ -122,6 +124,36 @@ st.markdown("""
         color: #546e7a;
         font-weight: bold;
     }
+    /* Conversation history styling */
+    .conversation-history {
+        background-color: #f5f5f5;
+        padding: 15px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+        max-height: 300px;
+        overflow-y: auto;
+        color: #333333;
+    }
+    .conversation-item {
+        padding: 10px;
+        margin-bottom: 10px;
+        border-radius: 8px;
+        background-color: white;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        color: #000000;
+    }
+    .user-query {
+        font-weight: bold;
+        color: #0d47a1;
+    }
+    .context-info {
+        background-color: #e3f2fd;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 15px;
+        font-size: 0.9rem;
+        color: #000000;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -188,6 +220,15 @@ with col1:
     if "run_query" not in st.session_state:
         st.session_state.run_query = False
     
+    # Display context information if available
+    if hasattr(st.session_state.financial_agent, 'context') and st.session_state.financial_agent.context["last_entity"]:
+        st.markdown(f"""
+        <div class="context-info">
+            <strong>Current Context:</strong> Talking about <strong>{st.session_state.financial_agent.context["last_entity"]}</strong> 
+            ({st.session_state.financial_agent.context["last_topic"] if st.session_state.financial_agent.context["last_topic"] else "general topic"})
+        </div>
+        """, unsafe_allow_html=True)
+    
     # Process query
     if run_query or st.session_state.get("run_query", False):
         if query:
@@ -196,9 +237,9 @@ with col1:
             
             with st.spinner("Analyzing financial data..."):
                 try:
-                    # Process the query
-                    result = financial_agent.handle_query(query)
-                    response = financial_agent.format_response(result)
+                    # Process the query using the agent from session state
+                    result = st.session_state.financial_agent.handle_query(query)
+                    response = st.session_state.financial_agent.format_response(result)
                     
                     # Handle stock chart requests
                     if result.get("is_stock_query", False) and result.get("is_chart_query", False):
@@ -259,41 +300,13 @@ with col1:
                     
                     # Different display for report vs. normal chat response
                     elif result.get("is_report_query", False) and not result.get("is_simple_query", False):
-                        # Convert markdown to HTML for proper display
-                        import re
-                        html_content = response
-                        # Convert headers
-                        html_content = re.sub(r'# (.*)', r'<h1>\1</h1>', html_content)
-                        html_content = re.sub(r'## (.*)', r'<h2>\1</h2>', html_content)
-                        html_content = re.sub(r'### (.*)', r'<h3>\1</h3>', html_content)
-                        # Convert bold
-                        html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
-                        # Convert line breaks
-                        html_content = html_content.replace('\n', '<br>')
-                        
-                        # Display report with proper styling
-                        st.markdown(f'<div class="report-container">{html_content}</div>', unsafe_allow_html=True)
+                        # The response is already in HTML format, just display it
+                        st.markdown(f'<div class="report-container">{response}</div>', unsafe_allow_html=True)
                     else:
                         # For stock data response, use a different style
                         if result.get("is_stock_query", False):
-                            # Clean up markdown for HTML display
-                            import re
-                            html_content = response
-                            # Convert headers
-                            html_content = re.sub(r'# (.*)', r'<h1>\1</h1>', html_content)
-                            html_content = re.sub(r'## (.*)', r'<h2>\1</h2>', html_content)
-                            html_content = re.sub(r'### (.*)', r'<h3>\1</h3>', html_content)
-                            # Convert bold
-                            html_content = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', html_content)
-                            # Style signals
-                            html_content = re.sub(r'BULLISH', r'<span class="indicator-bullish">BULLISH</span>', html_content)
-                            html_content = re.sub(r'BEARISH', r'<span class="indicator-bearish">BEARISH</span>', html_content)
-                            html_content = re.sub(r'NEUTRAL', r'<span class="indicator-neutral">NEUTRAL</span>', html_content)
-                            # Convert line breaks
-                            html_content = html_content.replace('\n', '<br>')
-                            
-                            # Display stock data with proper styling
-                            st.markdown(f'<div class="stock-container">{html_content}</div>', unsafe_allow_html=True)
+                            # The response is already in HTML format, just display it
+                            st.markdown(f'<div class="stock-container">{response}</div>', unsafe_allow_html=True)
                         else:
                             # Display simple chat response with better visibility
                             st.markdown(f'<div class="chat-container">{response}</div>', unsafe_allow_html=True)
@@ -304,6 +317,26 @@ with col1:
                     st.error(traceback.format_exc())
         else:
             st.warning("Please enter a question about finance, business, or markets.")
+    
+    # Display conversation history
+    if hasattr(st.session_state.financial_agent, 'conversation_history') and st.session_state.financial_agent.conversation_history:
+        st.markdown("### Conversation History")
+        
+        # Create a container for all conversation items
+        conversation_html = '<div class="conversation-history">'
+        
+        for i, item in enumerate(st.session_state.financial_agent.conversation_history):
+            conversation_html += f"""
+            <div class="conversation-item">
+                <div class="user-query">Q: {item['query']}</div>
+                <div>A: {item['response'][:150]}{'...' if len(item['response']) > 150 else ''}</div>
+            </div>
+            """
+            
+        conversation_html += '</div>'
+        
+        # Display the entire conversation history at once using components.html
+        st.components.v1.html(conversation_html, height=300)
     
     # Show usage tips for first-time users
     if "first_visit" not in st.session_state:
@@ -323,12 +356,15 @@ with col1:
             
             - **Simple Questions**: Get quick answers about financial terms
                 - Example: "What is a P/E ratio?"
+                
+            - **Follow-up Questions**: Ask follow-up questions about previously discussed topics
+                - Example: After asking about Elon Musk, you can ask "What companies does he own?"
             """)
 
 # Footer
 st.markdown("---")
-st.markdown("⚠️ **Disclaimer**: This is a prototype tool for educational purposes. The analysis is based on publicly available information and should not be used for financial decisions.")
-st.markdown("Powered by [Gemini AI](https://ai.google.dev/) and [Yahoo Finance](https://finance.yahoo.com/)")
+st.markdown("⚠️ **Disclaimer**: This is a tool for financial analysis purposes. The analysis is based on publicly available information and should not be used for financial decisions.")
+
 
 # Add chat history to keep track of previous interactions
 if "chat_history" not in st.session_state:

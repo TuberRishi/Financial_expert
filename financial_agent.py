@@ -13,6 +13,14 @@ class FinancialAgent:
         self.search_tool = SearchTool()
         self.sentiment_analyzer = SentimentAnalyzer()
         self.stock_tools = StockTools()
+        # Add memory for conversation history
+        self.conversation_history = []
+        self.context = {
+            "last_entity": None,  # Last entity mentioned (person, company, etc.)
+            "last_topic": None,   # Last topic discussed
+            "last_query": None,   # Last query processed
+            "last_response": None # Last response given
+        }
         
     def handle_query(self, query: str) -> Dict[str, Any]:
         """
@@ -25,6 +33,16 @@ class FinancialAgent:
             Dictionary containing the response
         """
         try:
+            # Update context with current query
+            self.context["last_query"] = query
+            
+            # Check if this is a follow-up question
+            if self._is_follow_up_question(query):
+                # Enhance query with context
+                enhanced_query = self._enhance_query_with_context(query)
+                print(f"Enhanced query with context: {enhanced_query}")
+                query = enhanced_query
+            
             # Check if query is finance-related
             if not self.sentiment_analyzer.is_finance_related(query):
                 return {
@@ -36,11 +54,17 @@ class FinancialAgent:
             # Check if it's a stock query
             stock_result = self.handle_stock_query(query)
             if stock_result:
+                # Update context with stock information
+                if "ticker" in stock_result:
+                    self.context["last_entity"] = stock_result.get("ticker")
+                    self.context["last_topic"] = "stock"
                 return stock_result
             
             # Simple factual queries that don't need web search
             simple_answer = self.handle_simple_query(query)
             if simple_answer:
+                # Update context with simple query information
+                self._update_context_from_simple_query(query, simple_answer)
                 return {
                     "is_finance_related": True,
                     "is_simple_query": True,
@@ -70,6 +94,20 @@ class FinancialAgent:
             analysis = self.sentiment_analyzer.analyze_sentiment(search_results, query)
             print(f"Analysis complete with sentiment: {analysis.get('sentiment', 'UNKNOWN')}")
             
+            # Extract entities from the query and update context
+            self._extract_and_update_entities(query, search_results)
+            
+            # Store the conversation in history
+            self.conversation_history.append({
+                "query": query,
+                "response": analysis.get("summary", ""),
+                "entities": self.context["last_entity"]
+            })
+            
+            # Limit conversation history to last 10 exchanges
+            if len(self.conversation_history) > 10:
+                self.conversation_history = self.conversation_history[-10:]
+            
             return {
                 "is_finance_related": True,
                 "is_simple_query": False,
@@ -88,6 +126,141 @@ class FinancialAgent:
                 "error": True,
                 "response": f"An error occurred while processing your query: {str(e)}"
             }
+    
+    def _is_follow_up_question(self, query: str) -> bool:
+        """
+        Determine if the current query is a follow-up to a previous question.
+        
+        Args:
+            query: The current query
+            
+        Returns:
+            True if this is a follow-up question
+        """
+        # Check for pronouns or references to previous context
+        follow_up_indicators = [
+            "he", "she", "it", "they", "them", "their", "his", "her", "its",
+            "this", "that", "these", "those", "the company", "the stock",
+            "the report", "the statement", "the financial", "the latest"
+        ]
+        
+        query_lower = query.lower()
+        
+        # Check if query contains follow-up indicators
+        has_follow_up_indicators = any(indicator in query_lower for indicator in follow_up_indicators)
+        
+        # Check if we have previous context
+        has_previous_context = self.context["last_entity"] is not None
+        
+        return has_follow_up_indicators and has_previous_context
+    
+    def _enhance_query_with_context(self, query: str) -> str:
+        """
+        Enhance a follow-up query with context from previous exchanges.
+        
+        Args:
+            query: The current query
+            
+        Returns:
+            Enhanced query with context
+        """
+        # Replace pronouns with the last entity
+        if self.context["last_entity"]:
+            query = query.replace(" he ", f" {self.context['last_entity']} ")
+            query = query.replace(" she ", f" {self.context['last_entity']} ")
+            query = query.replace(" it ", f" {self.context['last_entity']} ")
+            query = query.replace(" they ", f" {self.context['last_entity']} ")
+            query = query.replace(" them ", f" {self.context['last_entity']} ")
+            query = query.replace(" their ", f" {self.context['last_entity']}'s ")
+            query = query.replace(" his ", f" {self.context['last_entity']}'s ")
+            query = query.replace(" her ", f" {self.context['last_entity']}'s ")
+            query = query.replace(" its ", f" {self.context['last_entity']}'s ")
+            
+            # Replace generic references
+            query = query.replace(" the company ", f" {self.context['last_entity']} ")
+            query = query.replace(" the stock ", f" {self.context['last_entity']} ")
+            query = query.replace(" the report ", f" {self.context['last_entity']}'s report ")
+            query = query.replace(" the statement ", f" {self.context['last_entity']}'s statement ")
+            query = query.replace(" the financial ", f" {self.context['last_entity']}'s financial ")
+            query = query.replace(" the latest ", f" {self.context['last_entity']}'s latest ")
+        
+        return query
+    
+    def _extract_and_update_entities(self, query: str, search_results: str) -> None:
+        """
+        Extract entities from query and search results and update context.
+        
+        Args:
+            query: The user query
+            search_results: The search results
+        """
+        # Extract potential stock tickers
+        tickers = self._extract_tickers(query)
+        if tickers:
+            self.context["last_entity"] = tickers[0]
+            self.context["last_topic"] = "stock"
+            return
+        
+        # Extract company names
+        company_names = [
+            "Apple", "Microsoft", "Amazon", "Google", "Alphabet", "Facebook", "Meta",
+            "Tesla", "Netflix", "Nvidia", "Walmart", "Disney", "Coca-Cola", "IBM",
+            "Intel", "Alibaba", "AMD", "Nike", "JP Morgan", "Bank of America",
+            "Goldman Sachs", "Pfizer", "Johnson & Johnson"
+        ]
+        
+        for company in company_names:
+            if company.lower() in query.lower():
+                self.context["last_entity"] = company
+                self.context["last_topic"] = "company"
+                return
+        
+        # Extract person names
+        person_names = [
+            "Elon Musk", "Warren Buffett", "Jeff Bezos", "Mark Zuckerberg",
+            "Tim Cook", "Satya Nadella", "Jerome Powell", "Janet Yellen",
+            "Ray Dalio", "Cathie Wood", "Peter Lynch", "George Soros"
+        ]
+        
+        for person in person_names:
+            if person.lower() in query.lower():
+                self.context["last_entity"] = person
+                self.context["last_topic"] = "person"
+                return
+    
+    def _update_context_from_simple_query(self, query: str, answer: str) -> None:
+        """
+        Update context from simple query results.
+        
+        Args:
+            query: The user query
+            answer: The answer to the query
+        """
+        query_lower = query.lower()
+        
+        # Extract ticker information
+        if "ticker" in query_lower:
+            if "apple" in query_lower:
+                self.context["last_entity"] = "AAPL"
+                self.context["last_topic"] = "stock"
+            elif "microsoft" in query_lower:
+                self.context["last_entity"] = "MSFT"
+                self.context["last_topic"] = "stock"
+            elif "google" in query_lower:
+                self.context["last_entity"] = "GOOGL"
+                self.context["last_topic"] = "stock"
+            elif "amazon" in query_lower:
+                self.context["last_entity"] = "AMZN"
+                self.context["last_topic"] = "stock"
+            elif "tesla" in query_lower:
+                self.context["last_entity"] = "TSLA"
+                self.context["last_topic"] = "stock"
+        
+        # Extract financial terms
+        if "market cap" in query_lower or "market capitalization" in query_lower:
+            self.context["last_topic"] = "financial_term"
+        elif "p/e ratio" in query_lower:
+            self.context["last_topic"] = "financial_term"
     
     def handle_stock_query(self, query: str) -> Optional[Dict[str, Any]]:
         """
@@ -403,6 +576,7 @@ class FinancialAgent:
         
         # Common stock names to ticker mapping
         name_to_ticker = {
+            # US Stocks
             'apple': 'AAPL',
             'microsoft': 'MSFT',
             'amazon': 'AMZN',
@@ -428,7 +602,72 @@ class FinancialAgent:
             'bank of america': 'BAC',
             'goldman sachs': 'GS',
             'pfizer': 'PFE',
-            'johnson & johnson': 'JNJ'
+            'johnson & johnson': 'JNJ',
+            
+            # Indian Stocks
+            'reliance': 'RELIANCE.NS',
+            'tcs': 'TCS.NS',
+            'hdfc bank': 'HDFCBANK.NS',
+            'hdfc': 'HDFCBANK.NS',
+            'infosys': 'INFY.NS',
+            'icici bank': 'ICICIBANK.NS',
+            'icici': 'ICICIBANK.NS',
+            'hul': 'HINDUNILVR.NS',
+            'hindustan unilever': 'HINDUNILVR.NS',
+            'unilever': 'HINDUNILVR.NS',
+            'sbi': 'SBIN.NS',
+            'state bank': 'SBIN.NS',
+            'bharti airtel': 'BHARTIARTL.NS',
+            'airtel': 'BHARTIARTL.NS',
+            'asian paints': 'ASIANPAINT.NS',
+            'asianpaints': 'ASIANPAINT.NS',
+            'kotak bank': 'KOTAKBANK.NS',
+            'kotak': 'KOTAKBANK.NS',
+            'lt': 'LT.NS',
+            'larsen': 'LT.NS',
+            'larsen & toubro': 'LT.NS',
+            'hcl tech': 'HCLTECH.NS',
+            'hcl': 'HCLTECH.NS',
+            'wipro': 'WIPRO.NS',
+            'axis bank': 'AXISBANK.NS',
+            'axis': 'AXISBANK.NS',
+            'maruti': 'MARUTI.NS',
+            'maruti suzuki': 'MARUTI.NS',
+            'sun pharma': 'SUNPHARMA.NS',
+            'sunpharma': 'SUNPHARMA.NS',
+            'titan': 'TITAN.NS',
+            'titan company': 'TITAN.NS',
+            'bajaj finance': 'BAJFINANCE.NS',
+            'bajajfinance': 'BAJFINANCE.NS',
+            'bajaj auto': 'BAJAJ-AUTO.NS',
+            'bajajauto': 'BAJAJ-AUTO.NS',
+            'mahindra': 'M&M.NS',
+            'mahindra & mahindra': 'M&M.NS',
+            'ultra tech': 'ULTRACEMCO.NS',
+            'ultratech': 'ULTRACEMCO.NS',
+            'ultracemco': 'ULTRACEMCO.NS',
+            'nestle': 'NESTLEIND.NS',
+            'nestle india': 'NESTLEIND.NS',
+            'tata steel': 'TATASTEEL.NS',
+            'tatasteel': 'TATASTEEL.NS',
+            'tata motors': 'TATAMOTORS.NS',
+            'tatamotors': 'TATAMOTORS.NS',
+            'tata consultancy': 'TCS.NS',
+            'tata consult': 'TCS.NS',
+            'adani ports': 'ADANIPORTS.NS',
+            'adaniports': 'ADANIPORTS.NS',
+            'adani green': 'ADANIGREEN.NS',
+            'adanigreen': 'ADANIGREEN.NS',
+            'adani enterprises': 'ADANIENT.NS',
+            'adanient': 'ADANIENT.NS',
+            'adani power': 'ADANIPOWER.NS',
+            'adanipower': 'ADANIPOWER.NS',
+            'adani transmission': 'ADANITRANS.NS',
+            'adanitrans': 'ADANITRANS.NS',
+            'adani total gas': 'ATGL.NS',
+            'atgl': 'ATGL.NS',
+            'adani wilmar': 'AWL.NS',
+            'awl': 'AWL.NS'
         }
         
         name_tickers = []
@@ -576,7 +815,7 @@ class FinancialAgent:
             Formatted response string
         """
         if not result.get("is_finance_related", False):
-            return result["response"]
+            return self._format_simple_response(result["response"])
         
         # Handle stock chart queries
         if result.get("is_stock_query", False) and result.get("is_chart_query", False):
@@ -595,19 +834,97 @@ class FinancialAgent:
             return comparison_data
             
         if result.get("is_simple_query", False) or not result.get("is_report_query", True):
-            # For simple queries or non-report complex queries, return a plain response
+            # For simple queries or non-report complex queries, return a formatted response
             if "response" in result:
-                return result["response"]
+                return self._format_simple_response(result["response"])
             
             # For complex queries that are not report requests, format as conversational
             analysis = result["analysis"]
             sentiment = analysis.get("sentiment", "UNKNOWN")
             summary = analysis.get("summary", "No summary available.")
             
-            return f"{summary}\n\nOverall sentiment appears to be {sentiment.lower()}."
+            return self._format_conversational_response(summary, sentiment)
             
         # Format detailed report response
         return self._format_detailed_report(result)
+    
+    def _format_simple_response(self, response: str) -> str:
+        """
+        Format a simple response with appealing markdown.
+        
+        Args:
+            response: The response text
+            
+        Returns:
+            Formatted response string
+        """
+        # If response already has markdown formatting, clean it up
+        if response.startswith("#") or "**" in response or "##" in response:
+            # Clean up any markdown that might be visible to the user
+            cleaned_response = response
+            
+            # Replace markdown headers with HTML
+            cleaned_response = re.sub(r'^# (.*)$', r'<h1>\1</h1>', cleaned_response, flags=re.MULTILINE)
+            cleaned_response = re.sub(r'^## (.*)$', r'<h2>\1</h2>', cleaned_response, flags=re.MULTILINE)
+            cleaned_response = re.sub(r'^### (.*)$', r'<h3>\1</h3>', cleaned_response, flags=re.MULTILINE)
+            
+            # Replace markdown bold with HTML
+            cleaned_response = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', cleaned_response)
+            
+            # Replace markdown lists with HTML
+            cleaned_response = re.sub(r'^\s*[-*]\s+(.*)$', r'<li>\1</li>', cleaned_response, flags=re.MULTILINE)
+            cleaned_response = re.sub(r'(<li>.*</li>)(\n<li>.*</li>)+', r'<ul>\1\2</ul>', cleaned_response, flags=re.DOTALL)
+            
+            # Replace markdown horizontal rule
+            cleaned_response = re.sub(r'^---$', r'<hr>', cleaned_response, flags=re.MULTILINE)
+            
+            # Replace markdown italic
+            cleaned_response = re.sub(r'\*(.*?)\*', r'<em>\1</em>', cleaned_response)
+            
+            return cleaned_response
+            
+        # Format as a simple response with emoji
+        return f"""<h1>💬 Response</h1>
+
+{response}
+
+<hr>
+<em>This information is provided for educational purposes only.</em>
+"""
+    
+    def _format_conversational_response(self, summary: str, sentiment: str) -> str:
+        """
+        Format a conversational response with appealing markdown.
+        
+        Args:
+            summary: The summary text
+            sentiment: The sentiment (POSITIVE, NEGATIVE, NEUTRAL, MIXED)
+            
+        Returns:
+            Formatted response string
+        """
+        # Choose emoji based on sentiment
+        sentiment_emoji = "🔍"
+        if sentiment == "POSITIVE":
+            sentiment_emoji = "📈"
+        elif sentiment == "NEGATIVE":
+            sentiment_emoji = "📉"
+        elif sentiment == "NEUTRAL":
+            sentiment_emoji = "➡️"
+        elif sentiment == "MIXED":
+            sentiment_emoji = "🔄"
+            
+        return f"""<h1>Financial Insight {sentiment_emoji}</h1>
+
+<h2>Summary</h2>
+{summary}
+
+<h2>Sentiment Analysis</h2>
+Overall sentiment appears to be <strong>{sentiment.lower()}</strong>.
+
+<hr>
+<em>This analysis is based on publicly available information and should not be considered financial advice.</em>
+"""
     
     def _format_detailed_report(self, result: Dict[str, Any]) -> str:
         """Format a detailed financial report with clean layout."""
@@ -632,28 +949,54 @@ class FinancialAgent:
         elif sentiment == "MIXED":
             sentiment_emoji = "🔄"
             
+        # Process recommendations to convert to HTML list if it's a string with bullet points
+        recommendations_html = recommendations
+        if isinstance(recommendations, str):
+            # Check if it contains bullet points or numbered lists
+            if re.search(r'^\s*[-*•]\s+', recommendations, re.MULTILINE):
+                # Convert bullet points to HTML list
+                recommendations_html = re.sub(r'^\s*[-*•]\s+(.*)$', r'<li>\1</li>', recommendations, flags=re.MULTILINE)
+                recommendations_html = f"<ul>{recommendations_html}</ul>"
+            elif re.search(r'^\s*\d+\.\s+', recommendations, re.MULTILINE):
+                # Convert numbered lists to HTML list
+                recommendations_html = re.sub(r'^\s*\d+\.\s+(.*)$', r'<li>\1</li>', recommendations, flags=re.MULTILINE)
+                recommendations_html = f"<ol>{recommendations_html}</ol>"
+        
+        # Process detailed analysis to convert to HTML list if it's a string with bullet points
+        detailed_analysis_html = detailed_analysis
+        if isinstance(detailed_analysis, str):
+            # Check if it contains bullet points or numbered lists
+            if re.search(r'^\s*[-*•]\s+', detailed_analysis, re.MULTILINE):
+                # Convert bullet points to HTML list
+                detailed_analysis_html = re.sub(r'^\s*[-*•]\s+(.*)$', r'<li>\1</li>', detailed_analysis, flags=re.MULTILINE)
+                detailed_analysis_html = f"<ul>{detailed_analysis_html}</ul>"
+            elif re.search(r'^\s*\d+\.\s+', detailed_analysis, re.MULTILINE):
+                # Convert numbered lists to HTML list
+                detailed_analysis_html = re.sub(r'^\s*\d+\.\s+(.*)$', r'<li>\1</li>', detailed_analysis, flags=re.MULTILINE)
+                detailed_analysis_html = f"<ol>{detailed_analysis_html}</ol>"
+            
         # Build the report
-        formatted_response = f"""# Financial Market Analysis {sentiment_emoji}
+        formatted_response = f"""<h1>Financial Market Analysis {sentiment_emoji}</h1>
 
-## Key Findings
+<h2>Key Findings</h2>
 
-**Sentiment:** {sentiment}
-**Confidence Level:** {confidence}
+<strong>Sentiment:</strong> {sentiment}
+<strong>Confidence Level:</strong> {confidence}
 
-## Summary
+<h2>Summary</h2>
 {summary}
 
-## Market Impact
+<h2>Market Impact</h2>
 {market_impact}
 
-## Analysis Details
-{detailed_analysis}
+<h2>Analysis Details</h2>
+{detailed_analysis_html}
 
-## Recommendations
-{recommendations}
+<h2>Recommendations</h2>
+{recommendations_html}
 
----
-_Analysis based on information gathered from market sources. This is for informational purposes only and should not be considered financial advice._
+<hr>
+<em>Analysis based on information gathered from market sources. This is for informational purposes only and should not be considered financial advice.</em>
 """
         
         # Only add sources if requested (typically not shown by default to keep output clean)
