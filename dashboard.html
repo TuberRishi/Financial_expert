@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Unified Financial Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans">
+
+  <!-- Search Bar -->
+  <div class="search-container fixed top-0 left-0 w-full bg-white p-4 shadow z-50 flex gap-4 justify-center items-center">
+    <input type="text" id="topSearchInput" class="flex-1 max-w-xl px-4 py-2 border-2 border-blue-500 rounded text-lg" placeholder="Search for financial data...">
+    <button onclick="searchTop()" class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Search</button>
+  </div>
+
+  <!-- Dashboard -->
+  <main id="mainDashboard" class="pt-32 px-6 max-w-6xl mx-auto space-y-8">
+
+    <!-- Header -->
+    <header class="flex justify-between items-center">
+      <h1 class="text-3xl font-bold text-blue-600">Real-Time Financial Dashboard</h1>
+      <div class="text-gray-600">Last Updated: <span id="time">--:--:--</span></div>
+    </header>
+
+    <!-- Overview Cards -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white p-4 rounded shadow text-center">
+        <h2 class="text-xl font-semibold">Sensex</h2>
+        <p class="text-2xl text-green-600 mt-2" id="sensexValue">Loading...</p>
+      </div>
+      <div class="bg-white p-4 rounded shadow text-center">
+        <h2 class="text-xl font-semibold">Nifty 50</h2>
+        <p class="text-2xl text-green-600 mt-2" id="niftyValue">Loading...</p>
+      </div>
+      <div class="bg-white p-4 rounded shadow text-center">
+        <h2 class="text-xl font-semibold">INR to USD</h2>
+        <p class="text-2xl text-green-600 mt-2" id="inrToUsdValue">Loading...</p>
+      </div>
+    </section>
+
+    <!-- Charts -->
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="bg-white p-6 rounded shadow">
+        <h3 class="text-xl font-semibold text-blue-600 mb-4">Nifty 50 Live Chart</h3>
+        <canvas id="niftyLiveChart"></canvas>
+      </div>
+      <div class="bg-white p-6 rounded shadow">
+        <h3 class="text-xl font-semibold text-blue-600 mb-4">Sector-wise Market Capitalization</h3>
+        <canvas id="sectorPieChart"></canvas>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="text-center text-sm text-gray-500 mt-6 pb-12">
+    
+    </footer>
+  </main>
+
+  <!-- Company Details View -->
+  <section id="companyView" class="hidden pt-32 px-6 max-w-6xl mx-auto space-y-8">
+    <div class="flex items-center justify-between">
+      <h1 id="companyName" class="text-3xl font-bold text-blue-700">Company Name</h1>
+      <button onclick="backToDashboard()" class="bg-gray-700 text-white px-4 py-2 rounded">Back</button>
+    </div>
+
+    <p class="text-2xl mt-1">₹ <span id="currentPrice">0</span> <span class="text-red-500">-1.49%</span></p>
+    <p class="text-sm text-gray-500">04 Apr – close price</p>
+
+    <!-- Company Data -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 bg-white p-6 rounded-lg shadow">
+      <div><p class="text-sm text-gray-500">Market Cap</p><p class="text-lg font-semibold" id="marketCap">--</p></div>
+      <div><p class="text-sm text-gray-500">Current Price</p><p class="text-lg font-semibold" id="price">--</p></div>
+      <div><p class="text-sm text-gray-500">High / Low</p><p class="text-lg font-semibold" id="highLow">--</p></div>
+      <div><p class="text-sm text-gray-500">P/E</p><p class="text-xl font-bold" id="pe">--</p></div>
+      <div><p class="text-sm text-gray-500">Price to Book</p><p class="text-xl font-bold" id="pb">--</p></div>
+      <div><p class="text-sm text-gray-500">Dividend Yield</p><p class="text-xl font-bold" id="divYield">--</p></div>
+      <div><p class="text-sm text-gray-500">CAGR 1Yr</p><p class="text-lg font-semibold" id="cagr1">--</p></div>
+      <div><p class="text-sm text-gray-500">CAGR 5Yr</p><p class="text-lg font-semibold" id="cagr5">--</p></div>
+      <div><p class="text-sm text-gray-500">CAGR 10Yr</p><p class="text-lg font-semibold" id="cagr10">--</p></div>
+    </div>
+
+    <!-- Stock Chart -->
+    <div class="bg-white p-6 rounded-lg shadow">
+      <canvas id="stockChart" height="100"></canvas>
+    </div>
+  </section>
+
+  <!-- JS Logic -->
+  <script>
+    function updateData() {
+      document.getElementById('time').textContent = new Date().toLocaleTimeString();
+      async function fetchFinancialData() {
+        try {
+          document.getElementById('sensexValue').textContent = (63000 + Math.random() * 500).toFixed(2);
+          document.getElementById('niftyValue').textContent = (19000 + Math.random() * 100).toFixed(2);
+          document.getElementById('inrToUsdValue').textContent = (83.2 + Math.random() * 0.2).toFixed(2);
+        } catch (error) {
+          console.error('Error fetching financial data:', error);
+        }
+      }
+      fetchFinancialData();
+    }
+    setInterval(updateData, 1000);
+    updateData();
+
+    function searchTop() {
+      const query = document.getElementById('topSearchInput').value.trim();
+      if (query !== '') {
+        document.getElementById('mainDashboard').classList.add('hidden');
+        document.getElementById('companyView').classList.remove('hidden');
+        updateMockData(query);
+      }
+    }
+
+    function backToDashboard() {
+      document.getElementById('companyView').classList.add('hidden');
+      document.getElementById('mainDashboard').classList.remove('hidden');
+    }
+
+    function updateMockData(company) {
+      document.getElementById('companyName').textContent = company;
+      const base = Math.floor(Math.random() * 500) + 22000;
+      let prices = [], labels = [];
+      for (let i = 0; i < 20; i++) {
+        prices.push(base + Math.floor(Math.random() * 200 - 100));
+        labels.push(new Date(Date.now() - (20 - i) * 60000).toLocaleTimeString());
+      }
+      document.getElementById('currentPrice').textContent = prices[prices.length - 1];
+      document.getElementById('price').textContent = `₹ ${prices[prices.length - 1]}`;
+      document.getElementById('marketCap').textContent = `₹ ${(Math.random() * 1000000).toFixed(0)} Cr.`;
+      document.getElementById('highLow').textContent = `₹ ${base + 150} / ${base - 150}`;
+      document.getElementById('pe').textContent = (Math.random() * 40).toFixed(2);
+      document.getElementById('pb').textContent = (Math.random() * 5).toFixed(2);
+      document.getElementById('divYield').textContent = `${(Math.random() * 3).toFixed(2)}%`;
+      document.getElementById('cagr1').textContent = `${(Math.random() * 10).toFixed(2)}%`;
+      document.getElementById('cagr5').textContent = `${(Math.random() * 25).toFixed(2)}%`;
+      document.getElementById('cagr10').textContent = `${(Math.random() * 15).toFixed(2)}%`;
+      stockChart.data.labels = labels;
+      stockChart.data.datasets[0].data = prices;
+      stockChart.update();
+    }
+
+    // Nifty 50 Live Chart
+    const niftyChartCtx = document.getElementById('niftyLiveChart').getContext('2d');
+    let niftyChartLabels = [], niftyChartData = [];
+
+    const niftyChart = new Chart(niftyChartCtx, {
+      type: 'line',
+      data: {
+        labels: niftyChartLabels,
+        datasets: [{
+          label: 'Nifty 50',
+          data: niftyChartData,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59,130,246,0.1)',
+          fill: true,
+          tension: 0.4
+        }]
+      },
+      options: {
+        responsive: true,
+        scales: {
+          x: { display: true },
+          y: { beginAtZero: false }
+        }
+      }
+    });
+
+    function updateNiftyChart() {
+      const now = new Date().toLocaleTimeString();
+      const newValue = 19000 + Math.random() * 100 - 50;
+
+      if (niftyChartLabels.length >= 20) {
+        niftyChartLabels.shift();
+        niftyChartData.shift();
+      }
+
+      niftyChartLabels.push(now);
+      niftyChartData.push(newValue.toFixed(2));
+      niftyChart.update();
+    }
+    setInterval(updateNiftyChart, 5000);
+    updateNiftyChart();
+
+    // Sector Pie Chart
+    const sectorCtx = document.getElementById('sectorPieChart').getContext('2d');
+    new Chart(sectorCtx, {
+      type: 'pie',
+      data: {
+        labels: ['IT', 'Banking', 'FMCG', 'Auto', 'Pharma', 'Energy'],
+        datasets: [{
+          label: 'Sector Market Cap (%)',
+          data: [25, 20, 15, 10, 20, 10],
+          backgroundColor: [
+            '#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899'
+          ],
+        }]
+      },
+      options: {
+        responsive: true,
+        plugins: {
+          legend: { position: 'right' }
+        }
+      }
+    });
+
+    // Stock Chart (Company View)
+    const stockCtx = document.getElementById('stockChart').getContext('2d');
+    let stockChart = new Chart(stockCtx, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Price',
+          data: [],
+          borderColor: '#7c3aed',
+          backgroundColor: 'rgba(124, 58, 237, 0.1)',
+          tension: 0.4,
+          fill: true
+        }]
+      }
+    });
+  </script>
+</body>
+</html>

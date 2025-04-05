@@ -1,3 +1,5 @@
+# Financial AI
+
 import streamlit as st
 from financial_agent import FinancialAgent
 import os
